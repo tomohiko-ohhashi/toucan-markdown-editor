@@ -205,7 +205,7 @@ export function Toolbar() {
             <>
               <button className="menu-item" role="menuitemcheckbox" aria-checked={false} onClick={() => { close(); toggle("focusMode"); }}><MenuCheck />{t("フォーカスモード")} <kbd>{mod}{shift}D</kbd></button>
               <button className="menu-item" role="menuitemcheckbox" aria-checked={typewriterMode} onClick={() => { close(); toggle("typewriterMode"); }}><MenuCheck on={typewriterMode} />{t("タイプライターモード")} <kbd>{mod}{shift}T</kbd></button>
-              <button className="menu-item" role="menuitemcheckbox" aria-checked={levelPanes} onClick={() => { close(); toggleLevel(); }}><MenuCheck on={levelPanes} />{t("カーソルの位置で左右をそろえる")}</button>
+              <button className="menu-item" role="menuitemcheckbox" aria-checked={levelPanes} onClick={() => { close(); toggleLevel(); }}><MenuCheck on={levelPanes} />{t("カーソルの位置で左右をそろえる")} <kbd>{mod}{shift}L</kbd></button>
               <hr />
               <button className="menu-item" role="menuitemcheckbox" aria-checked={cheatSheetOpen} onClick={() => { close(); toggle("cheatSheetOpen"); }}><MenuCheck on={cheatSheetOpen} />{t("チートシート / ショートカット")} <kbd>F1</kbd></button>
               <button className="menu-item" onClick={() => { close(); toggle("settingsOpen"); }}><MenuCheck />{t("設定…")} <kbd>{mod},</kbd></button>

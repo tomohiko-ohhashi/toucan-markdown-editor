@@ -1059,6 +1059,14 @@ test("split view: the cursor's line is at the same height on both sides, and mar
   await expect.poll(async () => (await heights()).previewScroll).toBe(0);
   await toggle(false);
   await expect(page.locator(".preview .cursor-block")).toHaveCount(1);
+  // ... and so does its shortcut, from the editor too (where the key would otherwise select every match of the selection).
+  await editor(page).click();
+  await page.keyboard.press("Control+Shift+l");
+  await expect(page.locator(".preview .cursor-block")).toHaveCount(0);
+  expect((await stored(page)).levelPanes).toBe(false);
+  await page.keyboard.press("Control+Shift+l");
+  await expect(page.locator(".preview .cursor-block")).toHaveCount(1);
+  expect((await stored(page)).levelPanes).toBe(true);
   await page.locator(".pane-editor .cm-line", { hasText: "## 第1章" }).click();
   expect((await level()).marked).toBe("第1章");
 });

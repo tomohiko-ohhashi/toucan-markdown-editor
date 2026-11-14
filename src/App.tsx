@@ -147,6 +147,7 @@ export default function App() {
             setTimeout(() => searchBoxRef.el?.focus(), 50);
           });
         if (code === "KeyT") return run(() => toggle("typewriterMode"));
+        if (code === "KeyL") return run(() => useSettings.getState().update({ levelPanes: !useSettings.getState().levelPanes }));
         if (code === "Slash") return run(() => toggle("cheatSheetOpen"));
         if (code === "Digit1") return run(() => setViewMode("editor"));
         if (code === "Digit2") return run(() => setViewMode("split"));
