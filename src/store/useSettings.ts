@@ -46,6 +46,11 @@ export interface Settings {
   /** Hide Markdown markup on lines the cursor is not on. */
   livePreview: boolean;
   smartPaste: SmartPaste;
+  /**
+   * Keep the editor and the preview level at the height of the cursor, and mark the cursor's
+   * block in the preview. Off: the panes follow each other by how far they are scrolled.
+   */
+  levelPanes: boolean;
   /** Let the OS / browser underline spelling mistakes in the editor. */
   spellCheck: boolean;
   /** Seconds between autosaves of dirty documents that have a path; 0 disables. */
@@ -81,6 +86,7 @@ export const DEFAULT_SETTINGS: Settings = {
   listContinuation: "shift",
   livePreview: false,
   smartPaste: "ask",
+  levelPanes: true,
   spellCheck: false,
   autosaveSeconds: 0,
   reopenLastFiles: true,

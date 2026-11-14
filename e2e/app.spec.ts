@@ -969,3 +969,96 @@ test("saving under a name that exists asks first, and a name with a dot still ge
   await expect(page).toHaveTitle(/^notes 2026\.11\.md /);
   expect(onDisk("notes 2026.11.md")).toContain("# Hello");
 });
+
+test("split view: the cursor's line is at the same height on both sides, and marked in the preview", async ({ page }) => {
+  await start(page);
+  await openFile(page, "long.md");
+  const heights = () =>
+    page.evaluate(() => {
+      const scroller = document.querySelector(".pane-editor .cm-scroller") as HTMLElement;
+      const preview = document.querySelector(".preview") as HTMLElement;
+      const line = document.querySelector(".pane-editor .cm-activeLine");
+      const mark = preview.querySelector(".cursor-block");
+      return {
+        editor: line ? Math.round(line.getBoundingClientRect().top - scroller.getBoundingClientRect().top) : null,
+        preview: mark ? Math.round(mark.getBoundingClientRect().top - preview.getBoundingClientRect().top) : null,
+        marked: mark?.textContent ?? null,
+        editorScroll: Math.round(scroller.scrollTop),
+        previewScroll: Math.round(preview.scrollTop),
+        // How much empty space there is between the end of the preview's text and the bottom of the pane.
+        blankUnderText: preview.lastElementChild ? Math.round(preview.getBoundingClientRect().bottom - preview.lastElementChild.getBoundingClientRect().bottom) : 0,
+      };
+    });
+  const level = async () => {
+    await expect.poll(async () => { const h = await heights(); return h.editor != null && h.preview != null ? Math.abs(h.editor - h.preview) : 99; }).toBeLessThanOrEqual(6);
+    return heights();
+  };
+
+  // To the very end of the editor: the end of the preview's text is then at the bottom of its pane, not the
+  // empty space under it. Scrolled again on every look, since the editor learns the real height of the text
+  // only as it gets there (a person keeps turning the wheel).
+  const endsTogether = () =>
+    expect
+      .poll(async () => {
+        await page.locator(".pane-editor .cm-scroller").evaluate((e) => (e.scrollTop = e.scrollHeight));
+        await page.waitForTimeout(150);
+        const blank = (await heights()).blankUnderText;
+        return blank >= 0 && blank < 80;
+      })
+      .toBe(true);
+
+  // Click a heading: its block in the preview comes to the same height and carries the mark.
+  await page.locator(".pane-editor .cm-line", { hasText: "## 第2章" }).click();
+  expect((await level()).marked).toBe("第2章");
+  // Typing does not move the preview away.
+  await page.keyboard.press("End");
+  await page.keyboard.type(" 追記");
+  await expect(page.locator(".preview .cursor-block")).toHaveText("第2章 追記");
+  await level();
+
+  // Scrolling: the text at that height stays level, and the mark stays on the cursor's block.
+  const box = (await page.locator(".pane-editor .cm-scroller").boundingBox()) as { x: number; y: number };
+  await page.mouse.move(box.x + 200, box.y + 200);
+  for (let i = 0; i < 8; i++) await page.mouse.wheel(0, 120);
+  await expect.poll(async () => (await heights()).previewScroll).toBeGreaterThan(400);
+  expect((await heights()).marked).toBe("第2章 追記");
+  // The ends of the document belong together.
+  await endsTogether();
+  await page.locator(".pane-editor .cm-scroller").evaluate((e) => (e.scrollTop = 0));
+  await expect.poll(async () => (await heights()).previewScroll).toBe(0);
+
+  // The preview scrolled by hand stays where it was put; clicking in it moves nothing.
+  await page.locator(".preview").evaluate((e) => (e.scrollTop = 900));
+  await page.waitForTimeout(300);
+  expect((await heights()).previewScroll).toBe(900);
+  await page.locator(".preview").click({ position: { x: 200, y: 200 } });
+  await page.waitForTimeout(300);
+  expect((await heights()).previewScroll).toBe(900);
+
+  // A double click in the preview: the editor comes level with that block, the preview stays.
+  const para = page.locator(".preview p", { hasText: "第4章の段落 1。" });
+  await para.scrollIntoViewIfNeeded();
+  const before = (await heights()).previewScroll;
+  await para.dblclick({ position: { x: 20, y: 8 } });
+  await level();
+  expect(Math.abs((await heights()).previewScroll - before)).toBeLessThanOrEqual(2);
+
+  // The "..." menu switches it off (no mark) and on again, with a tick; the choice is kept.
+  const toggle = async (checkedBefore: boolean) => {
+    await page.locator(".toolbar .tg-more .dropdown > button").click();
+    const item = page.locator(".dropdown-menu .menu-item", { hasText: "カーソルの位置で左右をそろえる" });
+    await expect(item).toHaveAttribute("aria-checked", String(checkedBefore));
+    await item.click();
+  };
+  await toggle(true);
+  await expect(page.locator(".preview .cursor-block")).toHaveCount(0);
+  expect((await stored(page)).levelPanes).toBe(false);
+  // Switched off, the panes follow each other by how far through the text they are: the ends still belong together.
+  await endsTogether();
+  await page.locator(".pane-editor .cm-scroller").evaluate((e) => (e.scrollTop = 0));
+  await expect.poll(async () => (await heights()).previewScroll).toBe(0);
+  await toggle(false);
+  await expect(page.locator(".preview .cursor-block")).toHaveCount(1);
+  await page.locator(".pane-editor .cm-line", { hasText: "## 第1章" }).click();
+  expect((await level()).marked).toBe("第1章");
+});

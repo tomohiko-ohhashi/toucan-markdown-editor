@@ -19,7 +19,7 @@ import { useDocStore, selectActiveDoc, flashStatus } from "../store/useDocStore"
 import { useSettings } from "../store/useSettings";
 import { baseTheme, markdownHighlight } from "./theme";
 import { toggleBold, toggleItalic, toggleCode, insertLink, setHeading } from "./formatting";
-import { publishScroll, followScroll, pauseScrollSync } from "../preview/useScrollSync";
+import { attachEditor, editorScrolled, cursorMoved, previewIsBehind, pauseFollowing } from "../preview/scrollSync";
 import { handlePaste, handleDrop } from "./images";
 import { inTauri } from "../platform";
 import { typewriterScrolling, tabSizeExt, fullWidthHeadingFix, plainHtmlTags } from "./extensions";
@@ -165,6 +165,20 @@ function baseExtensions(opts: {
     EditorView.updateListener.of((u) => {
       const id = currentDocId;
       if (u.docChanged && id) useDocStore.getState().setContent(id, u.state.doc.toString());
+      // The cursor went to the first line (Mod+Home, Page Up): show the very top. The editor itself
+      // stops with the line at the top edge, which leaves the space above the text scrolled away.
+      if (u.selectionSet && !useDocStore.getState().typewriterMode && u.state.doc.lineAt(u.state.selection.main.head).number === 1) {
+        const view = u.view;
+        requestAnimationFrame(() => {
+          const scroller = view.scrollDOM;
+          if (scroller.scrollTop > 0 && scroller.scrollTop <= view.documentPadding.top + 4) scroller.scrollTop = 0;
+        });
+      }
+      // The preview follows the cursor: it is level with it, and marks the block it is in.
+      if (u.docChanged) previewIsBehind();
+      // Only for what is done in the editor. A change that comes from elsewhere (a task ticked in
+      // the preview) must not pull the preview to the cursor while the reader is busy in it.
+      if (u.selectionSet || u.geometryChanged || (u.docChanged && u.view.hasFocus)) cursorMoved();
       if ((u.selectionSet || u.docChanged) && id) {
         // Remembered so the next start can put the cursor back.
         const path = useDocStore.getState().docs.find((d) => d.id === id)?.path ?? null;
@@ -173,7 +187,7 @@ function baseExtensions(opts: {
       }
     }),
     EditorView.domEventHandlers({
-      scroll: (_e, view) => publishScroll("editor", view.scrollDOM),
+      scroll: () => editorScrolled(),
       paste: (e, view) => handlePaste(e, view) || handleSmartPaste(e, view),
       // On the desktop, dropped files arrive through the shell instead (see App.tsx).
       drop: (e, view) => !inTauri && handleDrop(e, view),
@@ -214,7 +228,7 @@ function publishCursor(state: EditorState) {
 
 /** Have the preview scroll to a source line once it has rendered the active document. */
 function showInPreview(line: number) {
-  pauseScrollSync(700);
+  pauseFollowing(700);
   useDocStore.setState({ reveal: { line, seq: -Date.now() } });
 }
 
@@ -248,7 +262,7 @@ export function Editor() {
     const view = new EditorView({ state: freshState(first), parent: host.current });
     editorRef.view = view;
     view.focus();
-    const unfollow = followScroll("editor", view.scrollDOM);
+    const unfollow = attachEditor(view);
     return () => {
       unfollow();
       view.destroy();
@@ -283,6 +297,9 @@ export function Editor() {
     } else {
       view.setState(freshState(doc));
     }
+    // Another document: what the preview shows is not this text until it has rendered it.
+    previewIsBehind();
+    cursorMoved();
     publishCursor(view.state);
     // Back to where the cursor is in this tab (also after a restart), in both panes.
     const head = view.state.selection.main.head;
@@ -367,7 +384,7 @@ export function Editor() {
     const id = requestAnimationFrame(() => {
       const view = editorRef.view;
       if (!view) return;
-      pauseScrollSync(400);
+      pauseFollowing(400);
       view.requestMeasure();
       view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: "start", yMargin: 24 }) });
     });
@@ -383,14 +400,14 @@ export function Editor() {
 }
 
 /** Move the cursor to a 1-based line and scroll it into view (used by the outline). */
-export function goToLine(line: number, focus = true) {
+export function goToLine(line: number, focus = true, scroll = true) {
   const view = editorRef.view;
   if (!view) return;
   const n = Math.max(1, Math.min(line, view.state.doc.lines));
   const pos = view.state.doc.line(n).from;
   view.dispatch({
     selection: { anchor: pos },
-    effects: EditorView.scrollIntoView(pos, { y: "start", yMargin: 24 }),
+    effects: scroll ? EditorView.scrollIntoView(pos, { y: "start", yMargin: 24 }) : [],
   });
   if (focus) view.focus();
 }

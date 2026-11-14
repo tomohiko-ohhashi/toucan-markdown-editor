@@ -135,6 +135,7 @@ export const en: Record<string, string> = {
   "Shift+Enter で継続": "Continue with Shift+Enter",
   "Enter で継続": "Continue with Enter",
   "しない": "Off",
+  "カーソルの位置で左右をそろえる": "Keep both sides level at the cursor",
   "カーソル行以外で Markdown 記号を隠す (WYSIWYG 風)": "Hide Markdown markers except on the cursor line (WYSIWYG-like)",
   "URL を選択範囲に貼り付けたとき": "When a URL is pasted over selected text",
   "常にリンクにする": "Always make a link",

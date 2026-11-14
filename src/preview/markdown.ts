@@ -170,9 +170,26 @@ const LINE_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "pre",
 const rehypeSourceLines: Plugin<[{ enabled: boolean }], Root> = function (this: unknown, { enabled }) {
   return (tree: Root) => {
     if (!enabled) return;
-    visit(tree, "element", (node: Element) => {
+    visit(tree, "element", (node: Element, index, parent) => {
       const line = node.position?.start.line;
-      if (line && LINE_TAGS.has(node.tagName)) node.properties.dataLine = line;
+      if (line && LINE_TAGS.has(node.tagName)) {
+        const first = node.tagName === "pre" ? node.children[0] : null;
+        const isMath = first?.type === "element" && Array.isArray(first.properties.className) && first.properties.className.includes("language-math");
+        if (isMath && parent && index != null) {
+          // A block of math: KaTeX puts its own elements in place of this one, so the lines are
+          // noted on a wrapper that stays.
+          parent.children[index] = {
+            type: "element",
+            tagName: "div",
+            properties: { className: ["math-block"], dataLine: line, dataLineEnd: node.position?.end.line ?? line },
+            children: [node],
+          };
+          return;
+        }
+        node.properties.dataLine = line;
+        // Where the block ends, so the UI can tell which block a source line is in.
+        node.properties.dataLineEnd = node.position?.end.line ?? line;
+      }
       // Task-list checkboxes come out disabled; in the live preview a click ticks the item in the source.
       if (node.tagName === "input" && node.properties.type === "checkbox") delete node.properties.disabled;
     });
@@ -236,8 +253,10 @@ async function renderMermaidBlocks(html: string, dark: boolean): Promise<string>
     const source = code.textContent ?? "";
     const wrapper = document.createElement("div");
     wrapper.className = "mermaid-diagram";
-    const line = pre.getAttribute("data-line");
-    if (line) wrapper.setAttribute("data-line", line);
+    for (const name of ["data-line", "data-line-end"]) {
+      const value = pre.getAttribute(name);
+      if (value) wrapper.setAttribute(name, value);
+    }
     try {
       const { svg } = await mermaid.render(`mermaid-${mermaidSeq++}`, source);
       wrapper.innerHTML = svg;

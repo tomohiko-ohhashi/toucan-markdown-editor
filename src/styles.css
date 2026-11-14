@@ -324,6 +324,25 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cheat-row pre { margin: 0; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; background: var(--bg); border: 1px solid var(--border); padding: 4px 8px; border-radius: 4px; }
 .cheat-row kbd { margin: 0; padding: 0; font-size: 12.5px; font-weight: 600; color: var(--fg); }
 
+/* ---------- Where the editor's cursor is, in the preview ---------- */
+/* A bar in the margin and a faint tint. Drawn with shadows and backgrounds only, so nothing moves.
+   The tint is an opaque colour: a see-through one would let the bar's shadow show through the margin. */
+.preview.show-cursor { --cursor-tint: color-mix(in srgb, var(--accent) 9%, var(--bg)); }
+.preview.show-cursor .cursor-block { background-color: var(--cursor-tint); box-shadow: -8px 0 0 0 var(--cursor-tint), -11px 0 0 0 var(--accent); }
+/* A list item: its number or bullet sits where the bar would go, so that takes the colour instead. */
+.preview.show-cursor li.cursor-block { background: linear-gradient(var(--cursor-tint), var(--cursor-tint)) no-repeat; background-size: 100% var(--cursor-own-h, 100%); box-shadow: none; }
+.preview.show-cursor li.cursor-block::marker { color: var(--accent); font-weight: 600; }
+.preview.show-cursor tr.cursor-block { box-shadow: none; background: none; }
+.preview.show-cursor tr.cursor-block > * { background: var(--cursor-tint); }
+.preview.show-cursor tr.cursor-block > :first-child { box-shadow: inset 3px 0 0 var(--accent); }
+/* Code: the bar for the block, and the tint on the row the cursor is on. */
+.preview.show-cursor pre.cursor-block {
+  background: linear-gradient(color-mix(in srgb, var(--accent) 14%, transparent), color-mix(in srgb, var(--accent) 14%, transparent)) no-repeat var(--bg-alt);
+  background-size: 100% var(--cursor-row-h, 0); background-position: 0 var(--cursor-row-y, 0);
+  box-shadow: -3px 0 0 0 var(--accent);
+}
+.preview.show-cursor hr.cursor-block { background: none; border-top-color: var(--accent); box-shadow: none; }
+
 /* ---------- Print (PDF export) ---------- */
 @media print {
   html, body, #root { height: auto; overflow: visible; background: #fff; color: #1f2328; }
@@ -337,6 +356,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   .app, .workbench, .panes, .pane { display: block; height: auto; overflow: visible; }
   .pane-preview { display: block !important; }
   .preview { height: auto; overflow: visible; padding: 0; }
+  .preview .cursor-block, .preview .cursor-block > * { background: none !important; box-shadow: none !important; }
 }
 
 /* ---------- File picker (web mode) ---------- */

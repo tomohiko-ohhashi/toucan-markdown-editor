@@ -1,15 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { fontFamilyCss, SANS_FALLBACK } from "../features/fonts";
 import { renderMarkdown } from "./markdown";
 import { useDocStore, selectActiveDoc, dirName } from "../store/useDocStore";
 import { useSettings, isDarkTheme } from "../store/useSettings";
-import { useScrollSync } from "./useScrollSync";
+import { attachPreview, previewRendered, alignPreview, bringEditorTo, levelsPanes, setLevelPanes, pauseFollowing } from "./scrollSync";
 import { openDocument } from "../features/files/fileOps";
 import { joinPath, isAbsolutePath } from "./paths";
 import { platform } from "../platform";
 import { scrollPreviewToLine } from "../features/reveal";
 import { toggleTaskAtLine } from "../editor/tasks";
-import { pauseScrollSync } from "./useScrollSync";
 import { cursorLine, goToLine } from "../editor/Editor";
 
 /**
@@ -90,7 +89,9 @@ export function Preview() {
   const waiting = useRef<(() => void)[]>([]);
   const [forced, setForced] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
-  useScrollSync("preview", ref);
+  useEffect(() => (ref.current ? attachPreview(ref.current) : undefined), []);
+  const levelPanes = useSettings((s) => s.levelPanes);
+  useEffect(() => setLevelPanes(levelPanes), [levelPanes]);
   const [systemDark, setSystemDark] = useState(() => isDarkTheme());
 
   // Re-render Mermaid diagrams when the OS theme flips while following "system".
@@ -154,20 +155,33 @@ export function Preview() {
         setHtml(h);
         rendered.current = content;
         setRenderTick((n) => n + 1);
-        // After React has put it on screen.
-        requestAnimationFrame(answer);
+        // What follows a render (levelling the panes, answering whoever waits) is done once React
+        // has put the HTML on screen: see the layout effect below.
       });
     }, delay);
     return () => clearTimeout(timer);
   }, [doc.id, doc.content, doc.path, theme, systemDark, hidden, forced]);
 
+  // The new HTML is in the document now (not merely asked for): the preview shows the current text.
+  useLayoutEffect(() => {
+    if (renderTick === 0) return;
+    previewRendered();
+    waiting.current.splice(0).forEach((resolve) => resolve());
+  }, [renderTick]);
+
   // Jump requested by the outline / search: wait until this document's HTML is on screen.
   useEffect(() => {
     if (!reveal || !ref.current) return;
     if (rendered.current !== doc.content) return;
-    pauseScrollSync(400);
-    scrollPreviewToLine(ref.current, reveal.line);
+    const el = ref.current;
+    const line = reveal.line;
     useDocStore.setState({ reveal: null });
+    // With the editor next to it, the preview goes level with the editor (which is moving to that
+    // line right now, hence the wait). On its own, it shows the block at the top.
+    if (!levelsPanes()) {
+      pauseFollowing(400);
+      scrollPreviewToLine(el, line);
+    } else requestAnimationFrame(() => requestAnimationFrame(() => alignPreview() || scrollPreviewToLine(el, line)));
   }, [reveal, renderTick, doc.content]);
 
   // Coming from editor-only: the preview was hidden, so show the block the cursor is in.
@@ -183,7 +197,7 @@ export function Preview() {
   return (
     <div
       ref={ref}
-      className="preview markdown-body"
+      className={`preview markdown-body${levelPanes && viewMode === "split" ? " show-cursor" : ""}`}
       style={{ fontSize: previewFontSize, fontFamily: fontFamilyCss(previewFont, SANS_FALLBACK) ?? undefined }}
       onClick={(e) => void onPreviewClick(e, doc.path)}
       // A middle click on a link would open it in a new browser tab, past the handler above:
@@ -195,8 +209,13 @@ export function Preview() {
         // Find this spot in the source: the editor cursor moves to the block's line.
         const line = sourceLineOf(e.target as HTMLElement);
         if (line == null) return;
-        pauseScrollSync(700);
-        goToLine(line, false);
+        // The cursor goes to that line; the editor then comes level with the preview, which stays put.
+        if (!levelsPanes()) {
+          pauseFollowing(700);
+          return goToLine(line, false);
+        }
+        goToLine(line, false, false);
+        bringEditorTo(line);
       }}
       dangerouslySetInnerHTML={{ __html: html }}
     />

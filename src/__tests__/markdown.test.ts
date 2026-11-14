@@ -88,11 +88,13 @@ describe("renderMarkdown", () => {
   });
   it("tags blocks with their source line when asked", async () => {
     const html = await renderMarkdown("# A\n\npara\n\n## B\n\n- x\n", { sourceLines: true });
-    expect(html).toContain('<h1 id="user-content-a" data-line="1">A</h1>');
-    expect(html).toContain('<p data-line="3">para</p>');
-    expect(html).toContain('<h2 id="user-content-b" data-line="5">B</h2>');
-    expect(html).toContain('<li data-line="7">x</li>');
+    expect(html).toContain('<h1 id="user-content-a" data-line="1" data-line-end="1">A</h1>');
+    expect(html).toContain('<p data-line="3" data-line-end="3">para</p>');
+    expect(html).toContain('<h2 id="user-content-b" data-line="5" data-line-end="5">B</h2>');
+    expect(html).toContain('<li data-line="7" data-line-end="7">x</li>');
     expect(await renderMarkdown("# A")).not.toContain("data-line");
+    // A block of math keeps its lines on a wrapper (KaTeX replaces the block itself).
+    expect(await renderMarkdown("a\n\n$$\nx\n$$\n", { sourceLines: true })).toContain('<div class="math-block" data-line="3" data-line-end="5">');
   });
   it("hides front matter instead of rendering it as text", async () => {
     const html = await renderMarkdown("---\ntitle: x\n---\n\n# A\n");

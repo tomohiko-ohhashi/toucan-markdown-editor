@@ -1,5 +1,5 @@
 import { goToLine } from "../editor/Editor";
-import { pauseScrollSync } from "../preview/useScrollSync";
+import { pauseFollowing } from "../preview/scrollSync";
 import { useDocStore } from "../store/useDocStore";
 
 let seq = 0;
@@ -35,7 +35,7 @@ export function scrollPreviewToLine(container: HTMLElement, line: number): boole
  */
 export function revealLine(line: number): void {
   const go = () => {
-    pauseScrollSync(700);
+    pauseFollowing(700);
     goToLine(line, !isNarrow());
     useDocStore.setState({ reveal: { line, seq: ++seq } });
   };

@@ -89,6 +89,8 @@ export function Toolbar() {
   const cheatSheetOpen = useDocStore((s) => s.cheatSheetOpen);
   const typewriterMode = useDocStore((s) => s.typewriterMode);
   const diffOpen = useDocStore((s) => s.diffOpen);
+  const levelPanes = useSettings((s) => s.levelPanes);
+  const toggleLevel = () => useSettings.getState().update({ levelPanes: !useSettings.getState().levelPanes });
   const recent = useSettings((s) => s.recentFiles);
   const clearRecent = useSettings((s) => s.clearRecent);
   // On a phone the bar scrolls sideways; mark whether there is more to either side, so the edges can show it.
@@ -203,6 +205,7 @@ export function Toolbar() {
             <>
               <button className="menu-item" role="menuitemcheckbox" aria-checked={false} onClick={() => { close(); toggle("focusMode"); }}><MenuCheck />{t("フォーカスモード")} <kbd>{mod}{shift}D</kbd></button>
               <button className="menu-item" role="menuitemcheckbox" aria-checked={typewriterMode} onClick={() => { close(); toggle("typewriterMode"); }}><MenuCheck on={typewriterMode} />{t("タイプライターモード")} <kbd>{mod}{shift}T</kbd></button>
+              <button className="menu-item" role="menuitemcheckbox" aria-checked={levelPanes} onClick={() => { close(); toggleLevel(); }}><MenuCheck on={levelPanes} />{t("カーソルの位置で左右をそろえる")}</button>
               <hr />
               <button className="menu-item" role="menuitemcheckbox" aria-checked={cheatSheetOpen} onClick={() => { close(); toggle("cheatSheetOpen"); }}><MenuCheck on={cheatSheetOpen} />{t("チートシート / ショートカット")} <kbd>F1</kbd></button>
               <button className="menu-item" onClick={() => { close(); toggle("settingsOpen"); }}><MenuCheck />{t("設定…")} <kbd>{mod},</kbd></button>
