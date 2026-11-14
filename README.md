@@ -75,6 +75,41 @@ macOS / Linux / Windows で動く、単独で動作する Markdown エディタ�
 | チートシート | F1 または ⌘⇧/ | F1 または Ctrl+Shift+/ |
 | 表の中でセル移動 | Tab / ⇧Tab | Tab / Shift+Tab |
 
+## インストール
+
+[Releases](https://github.com/tomohiko-ohhashi/toucan-markdown-editor/releases/latest) から、使っている OS のファイルをダウンロードします。
+
+| OS | ファイル |
+| --- | --- |
+| Windows | `..._x64-setup.exe` (または `.msi`) |
+| macOS (Apple シリコン: M1 以降) | `..._aarch64.dmg` |
+| macOS (Intel) | `..._x64.dmg` |
+| Linux | `.AppImage` / `.deb` / `.rpm` |
+
+2 回目以降は、アプリが起動時に新しい版を見つけて更新します (設定でオフにできます)。
+
+### 初回の起動 (macOS)
+
+アプリは Apple の公証を受けていないため、初回だけ macOS が起動を止めます。アプリが壊れているわけではありません。
+
+1. 出てきたダイアログは「完了」で閉じる (「ゴミ箱に入れる」は押さない)
+2. **システム設定 → プライバシーとセキュリティ** を開き、下のほうにある「"Toucan Markdown Editor" は開けませんでした」の横の **「このまま開く」** を押す
+3. 確認で「開く」を押し、パスワードか Touch ID で許可する
+
+一度許可すれば、次からは普通に開けます。
+
+「壊れているため開けません」と表示されて上のボタンが出ない場合や、ターミナルで済ませたい場合は、アプリを「アプリケーション」フォルダに入れてから次を実行します。
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Toucan Markdown Editor.app"
+```
+
+macOS 14 以前では、アプリを右クリック →「開く」でも起動できます (macOS 15 以降ではこの方法は使えません)。
+
+### 初回の起動 (Windows)
+
+SmartScreen の警告が出た場合は、「詳細情報」→「実行」を押します。
+
 ## Web モード (ブラウザ / スマホから使う)
 
 デスクトップ版と同じ画面を HTTP サーバーから配信し、サーバー上のフォルダにある Markdown をブラウザ (iPhone の Safari など) から編集できます。デスクトップ版はそのまま単独で動き、Web モードはそれに加えて使える別の入れ物です。
@@ -146,7 +181,7 @@ GitHub の Actions タブから「Release」ワークフローを手動実行 (R
 
 ### コード署名
 
-署名用の Secrets が設定されていない場合は未署名でビルドされます。その場合、macOS では初回起動時に Gatekeeper の警告が出るため、アプリを右クリック →「開く」で起動してください。Windows では SmartScreen の警告が出る場合があります（「詳細情報」→「実行」）。
+署名用の Secrets が設定されていない場合は未署名でビルドされます (macOS はアドホック署名)。その場合、初回起動時に macOS では Gatekeeper、Windows では SmartScreen の警告が出ます。利用者側の手順は「[インストール](#インストール)」にあります。
 
 macOS で署名・公証するには、Apple Developer Program に加入し、リポジトリの Secrets に次を登録します。
 

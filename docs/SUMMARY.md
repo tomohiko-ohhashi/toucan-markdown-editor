@@ -50,7 +50,7 @@ Linux のビルドには次のパッケージが必要: `libwebkit2gtk-4.1-dev l
 
 ### 署名について
 
-- **macOS**: Apple の署名用 Secrets (`APPLE_CERTIFICATE` など、README 参照) が無い場合はアドホック署名になる。初回起動時は右クリック →「開く」が必要
+- **macOS**: Apple の署名用 Secrets (`APPLE_CERTIFICATE` など、README 参照) が無い場合はアドホック署名になる。初回起動時は「システム設定 → プライバシーとセキュリティ → このまま開く」が必要 (macOS 15 以降は右クリック →「開く」では開けない。手順は README の「インストール」)
 - **Windows**: 未署名。SmartScreen の警告が出る場合は「詳細情報」→「実行」
 - **自動アップデート**: v0.3.3 から有効 (`TAURI_SIGNING_PRIVATE_KEY` を Secrets に登録済み)。リリースに `latest.json` と各インストーラの `.sig` が付き、インストール済みのアプリが起動時に更新を見つける。v0.3.2 → v0.3.3 の更新を実機で確認済み。公開鍵は `tauri.conf.json` に入っている。Secrets は登録後に読み出せないので、秘密鍵の控えは別に保管しておく。紛失した場合は `pnpm tauri signer generate` で作り直して公開鍵を貼り替える (その時点でインストール済みのアプリは一度だけ手動で入れ直し)
 
@@ -494,7 +494,7 @@ pnpm tauri build                    # .app / .dmg を作る (target/release/bund
 | Secret | 効果 | 状態 |
 | --- | --- | --- |
 | `TAURI_SIGNING_PRIVATE_KEY` | 自動アップデート用の署名。登録後は読み出せないので、秘密鍵の控えを別に保管しておく。紛失したら `pnpm tauri signer generate` で作り直し、`src-tauri/tauri.conf.json` の `pubkey` を貼り替える | 登録済み (v0.3.3 から有効) |
-| `APPLE_CERTIFICATE` ほか (README 参照) | macOS の署名と公証。無い間はアドホック署名 (初回は右クリック → 開く) | 未登録 |
+| `APPLE_CERTIFICATE` ほか (README 参照) | macOS の署名と公証。無い間はアドホック署名 (初回は「プライバシーとセキュリティ → このまま開く」) | 未登録 |
 
 ### まだ実機で確認していないこと
 
