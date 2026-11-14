@@ -146,6 +146,8 @@ function baseExtensions(opts: {
       // The app's shortcut for the changes view (handled in App.tsx). Claimed here so
       // the editor's own binding for it, "find previous", does not open the search panel too.
       { key: "Mod-Shift-g", run: () => true },
+      // Likewise the shortcut for "level both sides at the cursor" (the editor's own: select every match of the selection).
+      { key: "Mod-Shift-l", run: () => true },
       {
         key: "Shift-Alt-f",
         run: (view) => {
