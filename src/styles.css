@@ -195,7 +195,31 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .outline li.h3 button, .outline li.h4 button, .outline li.h5 button, .outline li.h6 button { color: var(--fg-muted); }
 
 /* ---------- Preview ---------- */
-.preview { height: 100%; overflow: auto; padding: 24px 32px 60vh; }
+/*
+ * Empty space under the text, the same in the editor and the preview; and in typewriter mode,
+ * above it. In the preview the space is the height of the marks themselves, not padding of the
+ * pane: padding counts towards the size of the pane, and with more of it than the pane is high
+ * (a low window; top and bottom space together), the pane grew out of its place and its lower
+ * end could not be reached.
+ */
+:root { --end-space: 60vh; --start-space: 45vh; --preview-pad: 24px; }
+/* overflow-anchor: where the pane stands when its layout changes is decided in scrollSync, not by the browser. */
+.preview { height: 100%; overflow: auto; overflow-anchor: none; padding: var(--preview-pad) 32px; }
+/* Where the text ends (the space below is not more document) ... */
+.cm-end-marker { padding: 28px 24px 0; cursor: text; }
+.cm-end-marker span, .preview:not(:empty)::after {
+  display: block; padding-top: 7px; border-top: 1px dashed var(--border); text-align: center;
+  font: 600 10.5px/1 var(--sans); letter-spacing: 0.2em; color: var(--fg-muted); opacity: 0.8; user-select: none;
+}
+.preview:not(:empty)::after { content: "END"; margin-top: 28px; box-sizing: content-box; height: calc(10.5px + var(--end-space) - var(--preview-pad)); }
+/* ... and where it starts, when there is space above it (typewriter mode; side by side, the preview gets the same). */
+.cm-has-start .cm-content::before, .preview.start-space:not(:empty)::before {
+  content: "START"; box-sizing: border-box; padding-bottom: 7px; border-bottom: 1px dashed var(--border); text-align: center;
+  font: 600 10.5px/1 var(--sans); letter-spacing: 0.2em; color: var(--fg-muted); opacity: 0.8; user-select: none; pointer-events: none; white-space: nowrap;
+}
+/* The mark is 19px high and ends 28px above the text. */
+.preview.start-space:not(:empty)::before { display: flex; flex-direction: column; justify-content: flex-end; height: calc(var(--start-space) - var(--preview-pad) - 28px); margin-bottom: 28px; }
+.cm-has-start .cm-content::before { display: block; height: 19px; position: absolute; left: 24px; right: 24px; top: calc(var(--start-space) - 47px); }
 
 /* ---------- Status bar ---------- */
 .statusbar { display: flex; gap: 16px; padding: 3px 12px; font-size: 12px; color: var(--fg-muted); background: var(--bg-alt); border-top: 1px solid var(--border); user-select: none; flex-shrink: 0; }
@@ -357,6 +381,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   .pane-preview { display: block !important; }
   .preview { height: auto; overflow: visible; padding: 0; }
   .preview .cursor-block, .preview .cursor-block > * { background: none !important; box-shadow: none !important; }
+  .preview::before, .preview::after { display: none !important; }
 }
 
 /* ---------- File picker (web mode) ---------- */
@@ -465,7 +490,8 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   .cheatsheet { z-index: 41; }
   .mode-split .panes { flex-direction: column; }
   .mode-split .pane-editor { border-right: none; border-bottom: 1px solid var(--border); }
-  .preview { padding: 16px 16px 40vh; }
+  :root { --end-space: 40vh; --preview-pad: 16px; }
+  .preview { padding: var(--preview-pad) 16px; }
   .editor .cm-line { padding: 0 12px; }
   input, select, textarea { font-size: 16px; } /* prevents iOS zoom on focus */
   .statusbar { font-size: 11px; gap: 10px; }

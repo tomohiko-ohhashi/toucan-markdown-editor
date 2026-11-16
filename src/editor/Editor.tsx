@@ -19,10 +19,10 @@ import { useDocStore, selectActiveDoc, flashStatus } from "../store/useDocStore"
 import { useSettings } from "../store/useSettings";
 import { baseTheme, markdownHighlight } from "./theme";
 import { toggleBold, toggleItalic, toggleCode, insertLink, setHeading } from "./formatting";
-import { attachEditor, editorScrolled, cursorMoved, previewIsBehind, pauseFollowing } from "../preview/scrollSync";
+import { attachEditor, editorScrolled, cursorMoved, editorReflowed, previewIsBehind, pauseFollowing, documentChanged, editorFollowsPreview, levelHeight } from "../preview/scrollSync";
 import { handlePaste, handleDrop } from "./images";
 import { inTauri } from "../platform";
-import { typewriterScrolling, tabSizeExt, fullWidthHeadingFix, plainHtmlTags } from "./extensions";
+import { typewriterScrolling, tabSizeExt, fullWidthHeadingFix, plainHtmlTags, endOfDocument } from "./extensions";
 import { tableNextCell, tablePrevCell } from "./table";
 import { listKeymap, indentListItem, outdentListItem } from "./listContinuation";
 import { formatDocument } from "./format";
@@ -86,8 +86,14 @@ const uiLanguage = new Compartment();
 const spelling = new Compartment();
 const spellingExt = (on: boolean) => EditorView.contentAttributes.of({ spellcheck: on ? "true" : "false" });
 
-/** Editor state (undo history, selection, scroll) is kept per tab. */
+/** Editor state (undo history, selection) is kept per tab ... */
 const states = new Map<string, EditorState>();
+/**
+ * ... and where each tab was scrolled to, so that coming back to a tab shows the same place. Kept
+ * as "this line at the top", not as a number of pixels: the editor has to measure the lines of a
+ * document again when it is put back, and the same number of pixels is then another place.
+ */
+const scrolls = new Map<string, { at: ReturnType<EditorView["scrollSnapshot"]>; level: number }>();
 
 function baseExtensions(opts: {
   lineWrap: boolean;
@@ -117,6 +123,7 @@ function baseExtensions(opts: {
     lineWrap.of(opts.lineWrap ? EditorView.lineWrapping : []),
     tabSize.of([tabSizeExt(opts.tabSize), indentUnit.of(" ".repeat(opts.tabSize))]),
     typewriter.of(opts.typewriter ? typewriterScrolling : []),
+    endOfDocument,
     // List/quote continuation must come before the default keymap's Enter binding.
     listKeys.of(keymap.of(listKeymap(opts.listContinuation))),
     // addKeymap: false — lang-markdown's own Enter binding (always continues
@@ -180,7 +187,8 @@ function baseExtensions(opts: {
       if (u.docChanged) previewIsBehind();
       // Only for what is done in the editor. A change that comes from elsewhere (a task ticked in
       // the preview) must not pull the preview to the cursor while the reader is busy in it.
-      if (u.selectionSet || u.geometryChanged || (u.docChanged && u.view.hasFocus)) cursorMoved();
+      if (u.selectionSet || (u.docChanged && u.view.hasFocus)) cursorMoved();
+      else if (u.geometryChanged) editorReflowed();
       if ((u.selectionSet || u.docChanged) && id) {
         // Remembered so the next start can put the cursor back.
         const path = useDocStore.getState().docs.find((d) => d.id === id)?.path ?? null;
@@ -265,6 +273,13 @@ export function Editor() {
     editorRef.view = view;
     view.focus();
     const unfollow = attachEditor(view);
+    // A file from the previous session: show where its cursor is. (With a single tab this is the
+    // only place that does it; the tab switch below never happens.)
+    const head = view.state.selection.main.head;
+    if (head > 0) {
+      view.dispatch({ effects: EditorView.scrollIntoView(head, { y: "center" }) });
+      showInPreview(view.state.doc.lineAt(head).number);
+    }
     return () => {
       unfollow();
       view.destroy();
@@ -278,10 +293,14 @@ export function Editor() {
     const view = editorRef.view;
     if (!view) return;
     if (currentDocId === doc.id) return;
-    if (currentDocId) states.set(currentDocId, view.state);
+    if (currentDocId) {
+      states.set(currentDocId, view.state);
+      scrolls.set(currentDocId, { at: view.scrollSnapshot(), level: levelHeight() });
+    }
     currentDocId = doc.id;
     const saved = states.get(doc.id);
-    if (saved && saved.doc.toString() === doc.content) {
+    const restored = !!saved && saved.doc.toString() === doc.content;
+    if (saved && restored) {
       view.setState(saved);
       // The stashed state carries the settings from when it was put away.
       const s = useSettings.getState();
@@ -300,22 +319,35 @@ export function Editor() {
       view.setState(freshState(doc));
     }
     // Another document: what the preview shows is not this text until it has rendered it.
-    previewIsBehind();
-    cursorMoved();
+    const scrolled = restored ? scrolls.get(doc.id) : undefined;
+    documentChanged(scrolled?.level);
+    cursorMoved(!scrolled);
     publishCursor(view.state);
-    // Back to where the cursor is in this tab (also after a restart), in both panes.
+    // Back to where this tab was: the place it was scrolled to when it was left; for a file from the
+    // previous session, where its cursor is; for a document seen for the first time, the top. (The
+    // scroll position belongs to the pane, not the document: without this a newly opened file
+    // appeared scrolled as far as the one before it.)
+    // The focus first: on getting it, the editor goes back to the scroll position it had when it
+    // lost it (its guard against browsers that scroll on focus), which was a place in the other
+    // document. A file opened from the sidebar came up scrolled as far as the one before it.
+    view.focus();
     const head = view.state.selection.main.head;
-    if (head > 0) {
+    if (scrolled) {
+      // The preview follows the editor (see documentChanged).
+      view.dispatch({ effects: scrolled.at });
+    } else if (head > 0) {
       view.dispatch({ effects: EditorView.scrollIntoView(head, { y: "center" }) });
       showInPreview(view.state.doc.lineAt(head).number);
+    } else {
+      view.scrollDOM.scrollTop = 0;
     }
-    view.focus();
   }, [doc.id, doc.content]);
 
   // Drop stashed states of closed tabs.
   useEffect(() => {
     const live = new Set(docIds.split("\0"));
     for (const id of Array.from(states.keys())) if (!live.has(id)) states.delete(id);
+    for (const id of Array.from(scrolls.keys())) if (!live.has(id)) scrolls.delete(id);
   }, [docIds]);
 
   // Replace the text when the document was changed outside the editor (reload from disk).
@@ -336,12 +368,16 @@ export function Editor() {
     view.dispatch({
       changes: { from: 0, to: current.length, insert: doc.content },
       selection: { anchor },
-      effects: restored != null ? EditorView.scrollIntoView(anchor, { y: "center" }) : [],
       // Not an edit by the user: a file loaded into this tab (or reloaded from disk) must not
       // be something "undo" can take back, or undoing far enough would empty the document.
       annotations: Transaction.addToHistory.of(false),
     });
-    if (restored != null && anchor > 0) showInPreview(restored);
+    if (restored != null && anchor > 0) {
+      // On its own, after the text is in: asked for together with the new text, the editor looked
+      // for the cursor before it had laid that text out, found it at the top, and stayed there.
+      view.dispatch({ effects: EditorView.scrollIntoView(anchor, { y: "center" }) });
+      showInPreview(restored);
+    }
   }, [doc.content, doc.id, doc.path]);
 
   // Apply settings changes live.
@@ -354,9 +390,27 @@ export function Editor() {
     });
   }, [tab]);
   useEffect(() => {
-    editorRef.view?.dispatch({
+    const view = editorRef.view;
+    if (!view) return;
+    const space = () => parseFloat(getComputedStyle(view.contentDOM).paddingTop) || 0;
+    const before = space();
+    const head = view.state.selection.main.head;
+    const at = view.coordsAtPos(head);
+    const pane = view.scrollDOM.getBoundingClientRect();
+    const cursorOnScreen = !!at && at.bottom > pane.top && at.top < pane.bottom;
+    view.dispatch({
       effects: typewriter.reconfigure(typewriterMode ? typewriterScrolling : []),
     });
+    // The mode puts empty space above the text (and takes it away again). The text stays where it
+    // is on screen; without this, switching the mode threw everything half a screen down or up.
+    const shift = space() - before;
+    if (!shift) return;
+    view.scrollDOM.scrollTop = Math.max(0, view.scrollDOM.scrollTop + shift);
+    // Switched on with the cursor in view: its line goes to the middle, which is what the mode is.
+    // (With the cursor somewhere else, the text being read stays put until the cursor is used.)
+    if (typewriterMode && cursorOnScreen) view.dispatch({ effects: EditorView.scrollIntoView(head, { y: "center" }) });
+    // The cursor may be at another height now.
+    cursorMoved();
   }, [typewriterMode]);
   useEffect(() => {
     editorRef.view?.dispatch({ effects: listKeys.reconfigure(keymap.of(listKeymap(listContinuation))) });
@@ -378,7 +432,8 @@ export function Editor() {
     editorRef.view?.requestMeasure();
   }, [fontFamily, fontSize]);
 
-  // Coming back from preview-only: the editor was hidden, so bring the cursor into view.
+  // Coming back from preview-only: the editor was hidden. Next to the preview it goes to the place
+  // the preview shows (that is what was being read); on its own, to the cursor.
   useEffect(() => {
     const was = prevMode.current;
     prevMode.current = viewMode;
@@ -386,9 +441,16 @@ export function Editor() {
     const id = requestAnimationFrame(() => {
       const view = editorRef.view;
       if (!view) return;
-      pauseFollowing(400);
-      view.requestMeasure();
-      view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: "start", yMargin: 24 }) });
+      const toCursor = () => {
+        pauseFollowing(400);
+        view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: "start", yMargin: 24 }) });
+      };
+      if (viewMode !== "split") return toCursor();
+      // Once the editor has measured itself again (it could not while it was hidden).
+      view.requestMeasure({
+        read: () => null,
+        write: () => queueMicrotask(() => editorFollowsPreview() || toCursor()),
+      });
     });
     return () => cancelAnimationFrame(id);
   }, [viewMode]);

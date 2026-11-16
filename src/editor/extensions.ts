@@ -1,9 +1,15 @@
 import { html } from "@codemirror/lang-html";
-import { EditorView } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
+import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
+import { EditorState, StateField } from "@codemirror/state";
 import { inCodeBlock } from "./context";
 
-/** Keep the cursor line vertically centred while typing (typewriter scrolling). */
+/**
+ * Keep the cursor line vertically centred while typing (typewriter scrolling).
+ *
+ * For the first lines to be able to stand in the middle there is empty space above the text, with
+ * a mark where the text starts (drawn by the style sheet, see ".cm-has-start"), so that the space
+ * does not look like part of the document. The space under the text is the one every document has.
+ */
 export const typewriterScrolling = [
   EditorView.updateListener.of((update) => {
     if (!update.selectionSet && !update.docChanged) return;
@@ -12,8 +18,9 @@ export const typewriterScrolling = [
       update.view.dispatch({ effects: EditorView.scrollIntoView(head, { y: "center" }) });
     });
   }),
+  EditorView.editorAttributes.compute(["doc"], (state) => ({ class: state.doc.length > 0 ? "cm-typewriter cm-has-start" : "cm-typewriter" })),
   EditorView.theme({
-    ".cm-content": { paddingTop: "45vh", paddingBottom: "45vh" },
+    ".cm-content": { paddingTop: "var(--start-space, 45vh)", position: "relative" },
   }),
 ];
 
@@ -81,3 +88,38 @@ export const fullWidthHeadingFix = [
  * closing tag by hand ends up with two. The editor writes what is typed.
  */
 export const plainHtmlTags = html({ matchClosingTags: false, autoCloseTags: false });
+
+class EndMarker extends WidgetType {
+  toDOM() {
+    const el = document.createElement("div");
+    el.className = "cm-end-marker";
+    el.setAttribute("aria-hidden", "true");
+    // The space above the line is padding of the widget, not a margin: the editor measures the box.
+    el.appendChild(document.createElement("span")).textContent = "END";
+    return el;
+  }
+  eq() {
+    return true;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
+const endMarkerAt = (state: EditorState): DecorationSet =>
+  state.doc.length === 0 ? Decoration.none : Decoration.set([Decoration.widget({ widget: new EndMarker(), side: 1, block: true }).range(state.doc.length)]);
+
+/**
+ * The same empty space under the text as the preview has, so that the last lines can be brought
+ * up the screen on both sides alike (with space on one side only, the two could not be level at
+ * the end of a document). And a mark where the text ends, so that the space does not look like
+ * more document to come.
+ */
+export const endOfDocument = [
+  StateField.define<DecorationSet>({
+    create: endMarkerAt,
+    update: (value, tr) => (tr.docChanged ? endMarkerAt(tr.state) : value),
+    provide: (field) => EditorView.decorations.from(field),
+  }),
+  EditorView.theme({ ".cm-content": { paddingBottom: "var(--end-space, 60vh)" } }),
+];

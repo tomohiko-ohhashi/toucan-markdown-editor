@@ -986,7 +986,12 @@ test("split view: the cursor's line is at the same height on both sides, and mar
         editorScroll: Math.round(scroller.scrollTop),
         previewScroll: Math.round(preview.scrollTop),
         // How much empty space there is between the end of the preview's text and the bottom of the pane.
+        // How much empty space there is between the end of the text and the bottom of the pane, on each side
+        // (null for the editor while the end of its text is not drawn).
         blankUnderText: preview.lastElementChild ? Math.round(preview.getBoundingClientRect().bottom - preview.lastElementChild.getBoundingClientRect().bottom) : 0,
+        editorBlank: document.querySelector(".pane-editor .cm-end-marker")
+          ? Math.round(scroller.getBoundingClientRect().bottom - (Array.from(document.querySelectorAll(".pane-editor .cm-line")).pop() as Element).getBoundingClientRect().bottom)
+          : null,
       };
     });
   const level = async () => {
@@ -994,16 +999,16 @@ test("split view: the cursor's line is at the same height on both sides, and mar
     return heights();
   };
 
-  // To the very end of the editor: the end of the preview's text is then at the bottom of its pane, not the
-  // empty space under it. Scrolled again on every look, since the editor learns the real height of the text
-  // only as it gets there (a person keeps turning the wheel).
+  // To the very end of the editor. Both sides have the same empty space under their text, and the mark
+  // "END" where the text stops: the two ends come to the same height. Scrolled again on every look, since
+  // the editor learns the real height of the text only as it gets there (a person keeps turning the wheel).
   const endsTogether = () =>
     expect
       .poll(async () => {
         await page.locator(".pane-editor .cm-scroller").evaluate((e) => (e.scrollTop = e.scrollHeight));
         await page.waitForTimeout(150);
-        const blank = (await heights()).blankUnderText;
-        return blank >= 0 && blank < 80;
+        const h = await heights();
+        return h.editorBlank != null && h.editorBlank > 200 && Math.abs(h.editorBlank - h.blankUnderText) <= 30;
       })
       .toBe(true);
 
@@ -1024,6 +1029,9 @@ test("split view: the cursor's line is at the same height on both sides, and mar
   expect((await heights()).marked).toBe("第2章 追記");
   // The ends of the document belong together.
   await endsTogether();
+  // The mark at the end of the text is there on both sides.
+  await expect(page.locator(".pane-editor .cm-end-marker")).toHaveText("END");
+  expect(await page.locator(".preview").evaluate((e) => getComputedStyle(e, "::after").content)).toBe('"END"');
   await page.locator(".pane-editor .cm-scroller").evaluate((e) => (e.scrollTop = 0));
   await expect.poll(async () => (await heights()).previewScroll).toBe(0);
 
@@ -1069,4 +1077,164 @@ test("split view: the cursor's line is at the same height on both sides, and mar
   expect((await stored(page)).levelPanes).toBe(true);
   await page.locator(".pane-editor .cm-line", { hasText: "## 第1章" }).click();
   expect((await level()).marked).toBe("第1章");
+});
+
+/** Where things are in the two panes of the split view (heights are px from the top edge of each pane). */
+const panes = (page: Page) =>
+  page.evaluate(() => {
+    const scroller = document.querySelector(".pane-editor .cm-scroller") as HTMLElement;
+    const preview = document.querySelector(".preview") as HTMLElement;
+    const from = (el: Element | null | undefined, pane: HTMLElement) => (el ? Math.round(el.getBoundingClientRect().top - pane.getBoundingClientRect().top) : null);
+    const start = (el: Element) => getComputedStyle(el, "::before").content === '"START"';
+    const heading = Array.from(document.querySelectorAll(".pane-editor .cm-line")).find((l) => /^## /.test(l.textContent ?? "") && l.getBoundingClientRect().top > scroller.getBoundingClientRect().top);
+    return {
+      editorScroll: Math.round(scroller.scrollTop),
+      previewScroll: Math.round(preview.scrollTop),
+      editorFirst: from(document.querySelector(".pane-editor .cm-line"), scroller),
+      previewFirst: from(preview.firstElementChild, preview),
+      cursor: from(document.querySelector(".pane-editor .cm-activeLine"), scroller),
+      mark: from(preview.querySelector(".cursor-block"), preview),
+      editorStart: start(document.querySelector(".pane-editor .cm-content") as Element),
+      previewStart: start(preview),
+      editorHeight: scroller.clientHeight,
+      // The preview is as high as the pane it is in (with more padding than height it grew out of it).
+      previewFits: Math.abs(preview.getBoundingClientRect().height - (preview.parentElement as HTMLElement).getBoundingClientRect().height) <= 1,
+      // The first heading in view in the editor, and where it is.
+      heading: heading ? `${heading.textContent} @${from(heading, scroller)}` : null,
+    };
+  });
+
+test("typewriter mode side by side: the same space above the text in both panes, marked START", async ({ page }) => {
+  await start(page);
+  await openFile(page, "long.md");
+  await editor(page).click();
+  await page.keyboard.press("Control+Home");
+  expect(await panes(page)).toMatchObject({ editorStart: false, previewStart: false });
+
+  // Switched on with the cursor in view: its line goes to the middle, on both sides at the same height,
+  // with the mark above the text. (Without the space in the preview, its first lines could not come down.)
+  await page.keyboard.press("Control+Shift+t");
+  await expect
+    .poll(async () => {
+      const p = await panes(page);
+      return p.editorStart && p.previewStart && p.previewFits && (p.cursor as number) > p.editorHeight / 3 && p.cursor === p.editorFirst && Math.abs((p.cursor as number) - (p.mark as number)) <= 3;
+    })
+    .toBe(true);
+  // At the very top the text starts at the same height on both sides.
+  await page.locator(".pane-editor .cm-scroller").evaluate((e) => (e.scrollTop = 0));
+  await expect.poll(async () => (await panes(page)).previewScroll).toBe(0);
+  let p = await panes(page);
+  expect(Math.abs((p.editorFirst as number) - (p.previewFirst as number))).toBeLessThanOrEqual(2);
+  expect(p.editorFirst as number).toBeGreaterThan(200);
+
+  // Further down, switching the mode off and on moves nothing on either side.
+  await page.locator(".pane-editor .cm-line", { hasText: "## 第3章" }).click();
+  await expect.poll(async () => { const q = await panes(page); return q.mark != null && Math.abs((q.cursor as number) - q.mark) <= 3; }).toBe(true);
+  const box = (await page.locator(".pane-editor .cm-scroller").boundingBox()) as { x: number; y: number };
+  await page.mouse.move(box.x + 200, box.y + 200);
+  for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 120);
+  await page.waitForTimeout(400);
+  const place = async () => { const q = await panes(page); return { heading: q.heading, preview: await page.locator(".preview h2", { hasText: "第5章" }).evaluate((e) => Math.round(e.getBoundingClientRect().top)) }; };
+  const on = await place();
+  await page.keyboard.press("Control+Shift+t");
+  await expect.poll(async () => (await panes(page)).editorStart).toBe(false);
+  await page.waitForTimeout(300);
+  expect(await place()).toEqual(on);
+  expect(await panes(page)).toMatchObject({ previewStart: false, previewFits: true });
+  await page.keyboard.press("Control+Shift+t");
+  await expect.poll(async () => (await panes(page)).previewStart).toBe(true);
+  await page.waitForTimeout(300);
+  expect(await place()).toEqual(on);
+
+  // The preview on its own has no space above its text; the editor on its own keeps it.
+  await page.keyboard.press("Control+Shift+Digit3");
+  await expect.poll(async () => (await panes(page)).previewStart).toBe(false);
+  await page.keyboard.press("Control+Shift+Digit1");
+  await expect.poll(async () => (await panes(page)).editorStart).toBe(true);
+});
+
+test("each tab keeps its place, a newly opened file starts at its top, and a restart shows the cursor", async ({ page }) => {
+  await start(page);
+  await openFile(page, "long.md");
+  // Somewhere in the middle, the cursor on a heading and the text scrolled a little further.
+  await page.locator(".pane-editor .cm-scroller").evaluate((e) => (e.scrollTop = 1500));
+  await page.locator(".pane-editor .cm-line", { hasText: /^## 第/ }).first().click();
+  const box = (await page.locator(".pane-editor .cm-scroller").boundingBox()) as { x: number; y: number };
+  await page.mouse.move(box.x + 200, box.y + 200);
+  for (let i = 0; i < 3; i++) await page.mouse.wheel(0, 120);
+  await page.waitForTimeout(400);
+  const left = await panes(page);
+  expect(left.editorScroll).toBeGreaterThan(1000);
+
+  // Another long file, opened from the sidebar (the editor loses the focus on the way): at its top, in both
+  // panes. It used to come up scrolled as far as the file before it.
+  await page.click('.tree-dir:has-text("notes")');
+  await openFile(page, "notes/long-too.md");
+  await expect.poll(async () => { const p = await panes(page); return [p.editorScroll, p.previewScroll]; }).toEqual([0, 0]);
+  await page.waitForTimeout(300);
+  expect(await panes(page)).toMatchObject({ editorScroll: 0, previewScroll: 0 });
+
+  // Back on the first tab: the same place as when it was left, in the editor and in the preview.
+  const previewHeading = () => page.locator(".preview h2").evaluateAll((list) => list.map((e) => Math.round(e.getBoundingClientRect().top)).find((y) => y > 100));
+  await page.click('.tab:has-text("long.md")');
+  await expect.poll(async () => (await panes(page)).heading).toBe(left.heading);
+  const previewAt = await previewHeading();
+  await page.click('.tab:has-text("long-too.md")');
+  await expect.poll(async () => (await panes(page)).editorScroll).toBe(0);
+  await page.click('.tab:has-text("long.md")');
+  await expect.poll(async () => (await panes(page)).heading).toBe(left.heading);
+  await expect.poll(async () => Math.abs(((await previewHeading()) ?? 0) - (previewAt ?? 0))).toBeLessThanOrEqual(3);
+
+  // A restart with a single tab: the cursor's line is on screen (it was restored, but the top was shown).
+  await page.locator('.tab:has-text("long-too.md") .tab-close').click();
+  await page.locator(".pane-editor .cm-line", { hasText: /^## 第/ }).first().click();
+  await page.waitForTimeout(900); // the session is written half a second after the last change
+  await page.reload();
+  await page.waitForSelector(".pane-editor .cm-activeLine");
+  await expect
+    .poll(async () => {
+      const p = await panes(page);
+      return p.cursor != null && p.cursor > 0 && p.cursor < p.editorHeight - 30 && p.mark != null && Math.abs(p.cursor - p.mark) <= 6;
+    })
+    .toBe(true);
+});
+
+test("split view: the cursor's line stays level when the layout changes, and the editor follows what was read in the preview", async ({ page }) => {
+  await start(page);
+  await openFile(page, "long.md");
+  await page.locator(".pane-editor .cm-scroller").evaluate((e) => (e.scrollTop = 1200));
+  await page.locator(".pane-editor .cm-line", { hasText: /^## 第/ }).first().click();
+  const level = () =>
+    expect
+      .poll(async () => {
+        const p = await panes(page);
+        return p.cursor != null && p.mark != null && p.cursor > 0 && p.cursor < p.editorHeight ? Math.abs(p.cursor - p.mark) : 99;
+      })
+      .toBeLessThanOrEqual(3);
+  await level();
+  // Panels opening and closing change the width of both panes (the preview used to be moved by the
+  // browser at that moment, and the editor was sent after it).
+  for (const key of ["Control+Shift+O", "Control+Shift+E", "Control+Shift+O", "Control+Shift+E"]) {
+    await page.keyboard.press(key);
+    await level();
+  }
+  await page.setViewportSize({ width: 1000, height: 620 });
+  await level();
+  expect((await panes(page)).previewFits).toBe(true);
+
+  // Reading on in the preview alone, then back to the split view: the editor shows what was being read.
+  await page.keyboard.press("Control+Shift+Digit3");
+  const preview = page.locator(".preview");
+  await preview.evaluate((e) => (e.scrollTop += 1400));
+  await page.waitForTimeout(300);
+  const reading = await page.locator(".preview h2").evaluateAll((list) => list.find((e) => e.getBoundingClientRect().top > 120)?.textContent ?? "");
+  await page.keyboard.press("Control+Shift+Digit2");
+  await expect.poll(async () => ((await panes(page)).heading ?? "").replace(/^## | @.*$/g, "")).toBe(reading);
+
+  // Deleting everything below the cursor makes both panes shorter than where they stood (the browser
+  // moves them up by itself): the cursor's line is on screen and level afterwards.
+  await page.locator(".pane-editor .cm-line", { hasText: /^## 第/ }).first().click();
+  await page.keyboard.press("Control+Shift+End");
+  await page.keyboard.press("Backspace");
+  await level();
 });
