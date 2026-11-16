@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { create } from "zustand";
 import { platform } from "../platform";
 import type { DirEntry } from "../platform";
@@ -44,7 +44,9 @@ export function FilePicker() {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Before the dialog is shown, not a moment after: what was typed into the name at once (a
+  // test does that, a person with a fast hand might) was replaced by the suggested name again.
+  useLayoutEffect(() => {
     if (!request) return;
     const def = request.defaultPath ?? "";
     const d = def.includes("/") ? dirName(def) : "";

@@ -3,7 +3,7 @@ import { fontFamilyCss, SANS_FALLBACK } from "../features/fonts";
 import { renderMarkdown } from "./markdown";
 import { useDocStore, selectActiveDoc, dirName } from "../store/useDocStore";
 import { useSettings, isDarkTheme } from "../store/useSettings";
-import { attachPreview, previewRendered, alignPreview, bringEditorTo, levelsPanes, setLevelPanes, pauseFollowing } from "./scrollSync";
+import { attachPreview, previewRendered, previewShifted, alignPreview, bringEditorTo, levelsPanes, setLevelPanes, pauseFollowing } from "./scrollSync";
 import { openDocument } from "../features/files/fileOps";
 import { joinPath, isAbsolutePath } from "./paths";
 import { platform } from "../platform";
@@ -92,6 +92,20 @@ export function Preview() {
   useEffect(() => (ref.current ? attachPreview(ref.current) : undefined), []);
   const levelPanes = useSettings((s) => s.levelPanes);
   useEffect(() => setLevelPanes(levelPanes), [levelPanes]);
+  // Typewriter mode puts empty space above the editor's text. Side by side, the preview has the
+  // same, or the first lines could not be level with the editor's.
+  const startSpace = useDocStore((s) => s.typewriterMode && s.viewMode === "split");
+  const space = useRef({ on: false, height: 0 });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // The space is what the START mark takes (see the style sheet); none while there is no text.
+    const mark = getComputedStyle(el, "::before");
+    const height = startSpace && mark.content !== "none" ? (parseFloat(mark.height) || 0) + (parseFloat(mark.marginBottom) || 0) : 0;
+    // The text stays where it is on screen when the space comes or goes.
+    if (startSpace !== space.current.on && height !== space.current.height) previewShifted(height - space.current.height);
+    space.current = { on: startSpace, height };
+  }, [startSpace, renderTick]);
   const [systemDark, setSystemDark] = useState(() => isDarkTheme());
 
   // Re-render Mermaid diagrams when the OS theme flips while following "system".
@@ -197,7 +211,7 @@ export function Preview() {
   return (
     <div
       ref={ref}
-      className={`preview markdown-body${levelPanes && viewMode === "split" ? " show-cursor" : ""}`}
+      className={`preview markdown-body${levelPanes && viewMode === "split" ? " show-cursor" : ""}${startSpace ? " start-space" : ""}`}
       style={{ fontSize: previewFontSize, fontFamily: fontFamilyCss(previewFont, SANS_FALLBACK) ?? undefined }}
       onClick={(e) => void onPreviewClick(e, doc.path)}
       // A middle click on a link would open it in a new browser tab, past the handler above:

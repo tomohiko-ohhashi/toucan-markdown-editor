@@ -3,7 +3,13 @@ import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemir
 import { EditorState, StateField } from "@codemirror/state";
 import { inCodeBlock } from "./context";
 
-/** Keep the cursor line vertically centred while typing (typewriter scrolling). */
+/**
+ * Keep the cursor line vertically centred while typing (typewriter scrolling).
+ *
+ * For the first lines to be able to stand in the middle there is empty space above the text, with
+ * a mark where the text starts (drawn by the style sheet, see ".cm-has-start"), so that the space
+ * does not look like part of the document. The space under the text is the one every document has.
+ */
 export const typewriterScrolling = [
   EditorView.updateListener.of((update) => {
     if (!update.selectionSet && !update.docChanged) return;
@@ -12,8 +18,9 @@ export const typewriterScrolling = [
       update.view.dispatch({ effects: EditorView.scrollIntoView(head, { y: "center" }) });
     });
   }),
+  EditorView.editorAttributes.compute(["doc"], (state) => ({ class: state.doc.length > 0 ? "cm-typewriter cm-has-start" : "cm-typewriter" })),
   EditorView.theme({
-    ".cm-content": { paddingTop: "45vh", paddingBottom: "45vh" },
+    ".cm-content": { paddingTop: "var(--start-space, 45vh)", position: "relative" },
   }),
 ];
 

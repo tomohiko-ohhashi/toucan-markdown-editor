@@ -30,6 +30,7 @@ const files = {
   "hello.md": "# Hello\n\nFirst paragraph.\n",
   "tasks.md": "# タスク\n\n- [ ] 一つ目\n- [x] 二つ目\n\n本文\n\n## 後半\n\nおわり\n",
   "long.md": long.join("\n"),
+  "notes/long-too.md": long.join("\n").replaceAll("第", "別の第"),
   "save-me.md": "# Save me\n",
   "unsaved.md": "# Unsaved\n",
   "docs/README.md": "# Docs\n\ndocs のファイル\n",
