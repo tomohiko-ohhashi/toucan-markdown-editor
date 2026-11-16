@@ -986,7 +986,12 @@ test("split view: the cursor's line is at the same height on both sides, and mar
         editorScroll: Math.round(scroller.scrollTop),
         previewScroll: Math.round(preview.scrollTop),
         // How much empty space there is between the end of the preview's text and the bottom of the pane.
+        // How much empty space there is between the end of the text and the bottom of the pane, on each side
+        // (null for the editor while the end of its text is not drawn).
         blankUnderText: preview.lastElementChild ? Math.round(preview.getBoundingClientRect().bottom - preview.lastElementChild.getBoundingClientRect().bottom) : 0,
+        editorBlank: document.querySelector(".pane-editor .cm-end-marker")
+          ? Math.round(scroller.getBoundingClientRect().bottom - (Array.from(document.querySelectorAll(".pane-editor .cm-line")).pop() as Element).getBoundingClientRect().bottom)
+          : null,
       };
     });
   const level = async () => {
@@ -994,16 +999,16 @@ test("split view: the cursor's line is at the same height on both sides, and mar
     return heights();
   };
 
-  // To the very end of the editor: the end of the preview's text is then at the bottom of its pane, not the
-  // empty space under it. Scrolled again on every look, since the editor learns the real height of the text
-  // only as it gets there (a person keeps turning the wheel).
+  // To the very end of the editor. Both sides have the same empty space under their text, and the mark
+  // "END" where the text stops: the two ends come to the same height. Scrolled again on every look, since
+  // the editor learns the real height of the text only as it gets there (a person keeps turning the wheel).
   const endsTogether = () =>
     expect
       .poll(async () => {
         await page.locator(".pane-editor .cm-scroller").evaluate((e) => (e.scrollTop = e.scrollHeight));
         await page.waitForTimeout(150);
-        const blank = (await heights()).blankUnderText;
-        return blank >= 0 && blank < 80;
+        const h = await heights();
+        return h.editorBlank != null && h.editorBlank > 200 && Math.abs(h.editorBlank - h.blankUnderText) <= 30;
       })
       .toBe(true);
 
@@ -1024,6 +1029,9 @@ test("split view: the cursor's line is at the same height on both sides, and mar
   expect((await heights()).marked).toBe("第2章 追記");
   // The ends of the document belong together.
   await endsTogether();
+  // The mark at the end of the text is there on both sides.
+  await expect(page.locator(".pane-editor .cm-end-marker")).toHaveText("END");
+  expect(await page.locator(".preview").evaluate((e) => getComputedStyle(e, "::after").content)).toBe('"END"');
   await page.locator(".pane-editor .cm-scroller").evaluate((e) => (e.scrollTop = 0));
   await expect.poll(async () => (await heights()).previewScroll).toBe(0);
 

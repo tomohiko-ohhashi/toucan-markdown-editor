@@ -22,7 +22,7 @@ import { toggleBold, toggleItalic, toggleCode, insertLink, setHeading } from "./
 import { attachEditor, editorScrolled, cursorMoved, previewIsBehind, pauseFollowing } from "../preview/scrollSync";
 import { handlePaste, handleDrop } from "./images";
 import { inTauri } from "../platform";
-import { typewriterScrolling, tabSizeExt, fullWidthHeadingFix, plainHtmlTags } from "./extensions";
+import { typewriterScrolling, tabSizeExt, fullWidthHeadingFix, plainHtmlTags, endOfDocument } from "./extensions";
 import { tableNextCell, tablePrevCell } from "./table";
 import { listKeymap, indentListItem, outdentListItem } from "./listContinuation";
 import { formatDocument } from "./format";
@@ -117,6 +117,7 @@ function baseExtensions(opts: {
     lineWrap.of(opts.lineWrap ? EditorView.lineWrapping : []),
     tabSize.of([tabSizeExt(opts.tabSize), indentUnit.of(" ".repeat(opts.tabSize))]),
     typewriter.of(opts.typewriter ? typewriterScrolling : []),
+    endOfDocument,
     // List/quote continuation must come before the default keymap's Enter binding.
     listKeys.of(keymap.of(listKeymap(opts.listContinuation))),
     // addKeymap: false — lang-markdown's own Enter binding (always continues

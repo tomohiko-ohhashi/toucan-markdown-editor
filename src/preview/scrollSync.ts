@@ -1,4 +1,4 @@
-import type { EditorView } from "@codemirror/view";
+import { BlockType, type BlockInfo, type EditorView } from "@codemirror/view";
 
 /**
  * Keeps the editor and the preview at the same place in the document.
@@ -59,7 +59,6 @@ function isOwnScroll(side: "editor" | "preview", el: HTMLElement): boolean {
 let anchors: Anchor[] | null = null;
 let blocks: Block[] = [];
 let anchorsFor = { height: 0, width: 0 };
-let marked: HTMLElement | null = null;
 /** The height (px from the top of the editor pane) at which the panes are level. */
 let reference = 0;
 /** Until this time a scroll of the editor is the editor following its cursor, not the user scrolling. */
@@ -98,23 +97,27 @@ export function pauseFollowing(ms: number) {
 }
 
 /**
- * How far a pane can be scrolled until the end of its text is at the bottom edge. The preview
- * has empty space under its text (more than half a screen, so the last lines can be brought up);
- * that space is not text, and counting it made "the same fraction" run ahead in the preview and
- * end on a blank screen.
+ * How far a pane can be scrolled until the end of its text is at the bottom edge. Both panes
+ * have empty space under their text (more than half a screen, so the last lines can be brought
+ * up); that space is not text and is not counted as length.
  */
 function textEnd(el: HTMLElement): number {
-  if (el !== pane) return Math.max(0, el.scrollHeight - el.clientHeight);
-  const style = getComputedStyle(el);
-  const blank = Math.max(0, parseFloat(style.paddingBottom) - parseFloat(style.paddingTop));
-  return Math.max(0, el.scrollHeight - blank - el.clientHeight);
+  let blank: number;
+  if (el === pane) {
+    const style = getComputedStyle(el);
+    blank = parseFloat(style.paddingBottom) - parseFloat(style.paddingTop);
+  } else {
+    blank = view ? view.documentPadding.bottom - view.documentPadding.top : 0;
+  }
+  return Math.max(0, el.scrollHeight - Math.max(0, blank) - el.clientHeight);
 }
 
-/** By-fraction mode: `to` goes as far through its text as `from` is. */
+/** By-fraction mode: `to` goes as far through its text as `from` is; past the end of the text, the same distance. */
 function followByFraction(from: HTMLElement, to: HTMLElement, side: "editor" | "preview") {
   if (now() < pausedUntil) return;
   const max = textEnd(from);
-  const target = Math.round(clamp(max > 0 ? from.scrollTop / max : 0, 0, 1) * textEnd(to));
+  const through = max > 0 ? from.scrollTop / max : 0;
+  const target = Math.round(through <= 1 ? Math.max(0, through) * textEnd(to) : textEnd(to) + (from.scrollTop - max));
   if (Math.abs(target - to.scrollTop) < 1) return;
   scrollTo(side, to, target, 100);
 }
@@ -150,9 +153,18 @@ function editorGeometry(v: EditorView) {
 }
 type Geometry = ReturnType<typeof editorGeometry>;
 
+/**
+ * The text of a line, without what the editor draws around it. The last line has the END mark
+ * under it, and the editor reports the two as one block.
+ */
+function textOf(block: BlockInfo): BlockInfo {
+  if (!Array.isArray(block.type)) return block;
+  return block.type.find((part) => part.type === BlockType.Text) ?? block;
+}
+
 /** The source line (with a fraction for "how far into it") shown at content position `y`. */
 function lineAt(v: EditorView, g: Geometry, y: number): number {
-  const block = v.lineBlockAtHeight(y - g.base);
+  const block = textOf(v.lineBlockAtHeight(y - g.base));
   const line = v.state.doc.lineAt(block.from).number;
   const into = block.height > 0 ? clamp((y - g.base - block.top) / block.height, 0, 1) : 0;
   return line + into;
@@ -161,7 +173,7 @@ function lineAt(v: EditorView, g: Geometry, y: number): number {
 /** The content position of a (fractional) source line. */
 function positionOf(v: EditorView, g: Geometry, line: number): number {
   const n = clamp(Math.floor(line), 1, v.state.doc.lines);
-  const block = v.lineBlockAt(v.state.doc.line(n).from);
+  const block = textOf(v.lineBlockAt(v.state.doc.line(n).from));
   return g.base + block.top + clamp(line - n, 0, 1) * block.height;
 }
 
@@ -174,7 +186,7 @@ function positionOf(v: EditorView, g: Geometry, line: number): number {
  */
 function cursorPosition(v: EditorView, g: Geometry): number {
   const head = v.state.selection.main.head;
-  const block = v.lineBlockAt(head);
+  const block = textOf(v.lineBlockAt(head));
   const at = v.coordsAtPos(head);
   const first = v.coordsAtPos(block.from, 1);
   const row = at && first ? clamp(at.top - first.top, 0, block.height) : 0;
@@ -238,7 +250,6 @@ function currentAnchors(): Anchor[] {
   if (!anchors || anchorsFor.height !== el.scrollHeight || anchorsFor.width !== el.clientWidth) {
     anchors = build(el, view?.state.doc.lines ?? 1);
     anchorsFor = { height: el.scrollHeight, width: el.clientWidth };
-    marked = null; // elements may have been replaced
   }
   return anchors;
 }
@@ -273,6 +284,17 @@ function previewLineAt(y: number): number {
   const b = list[i + 1];
   const t = b.top > a.top ? clamp((y - a.top) / (b.top - a.top), 0, 1) : 0;
   return a.line + t * (b.line - a.line);
+}
+
+/** Where the text ends in the editor (content position of the bottom of the last line). */
+function editorTextEnd(v: EditorView, g: Geometry): number {
+  return g.base + textOf(v.lineBlockAt(v.state.doc.length)).bottom;
+}
+
+/** Where the text ends in the preview (content position of the bottom of the last block). */
+function previewTextEnd(): number {
+  const list = currentAnchors();
+  return list[list.length - 1].top;
 }
 
 // ---------- moving the panes ----------
@@ -328,14 +350,17 @@ function previewTarget(): number | null {
   const scrolled = g.scroller.scrollTop;
   const cursorY = cursorPosition(v, g) - scrolled;
   const cursorVisible = cursorY >= 0 && cursorY <= g.height;
-  // Reading, with the cursor somewhere else: the ends of the document belong together.
+  // Reading, with the cursor somewhere else: the tops of the document belong together.
   if (!cursorVisible && scrolled <= 0) return 0;
-  if (!cursorVisible && scrolled >= g.max - 1) return textEnd(el);
 
   const height = clamp(reference, 0, g.height);
   // The panes need not start at the same height on screen.
   const inPreview = height + g.rect.top - el.getBoundingClientRect().top;
-  return previewPositionOf(lineAt(v, g, scrolled + height)) - inPreview;
+  const at = scrolled + height;
+  // In the empty space under the text there are no lines to go by: as far past the end here as there.
+  const end = editorTextEnd(v, g);
+  if (at > end) return previewTextEnd() + (at - end) - inPreview;
+  return previewPositionOf(lineAt(v, g, at)) - inPreview;
 }
 
 /** What the next levelling pass has to do; several requests within one frame are done as one. */
@@ -376,11 +401,12 @@ export function alignEditor(): boolean {
   const scrolled = el.scrollTop;
   let target: number;
   if (scrolled <= 0) target = 0;
-  else if (scrolled >= textEnd(el) - 1) target = g.max;
   else {
     const height = clamp(reference, 0, g.height);
-    const line = previewLineAt(scrolled + height + g.rect.top - el.getBoundingClientRect().top);
-    target = clamp(positionOf(v, g, line) - height, 0, g.max);
+    const at = scrolled + height + g.rect.top - el.getBoundingClientRect().top;
+    const end = previewTextEnd();
+    const position = at > end ? editorTextEnd(v, g) + (at - end) : positionOf(v, g, previewLineAt(at));
+    target = clamp(position - height, 0, g.max);
   }
   target = Math.round(target);
   if (Math.abs(target - g.scroller.scrollTop) < 2) return true;
@@ -420,13 +446,13 @@ function markCursor() {
     }
   }
   const el = best?.el ?? null;
-  if (el !== marked || (el && !el.classList.contains("cursor-block"))) {
+  // Asked of the document, not remembered: the elements are replaced at every render.
+  if (pane.querySelector(".cursor-block") !== el) {
     pane.querySelectorAll<HTMLElement>(".cursor-block").forEach((n) => {
       n.classList.remove("cursor-block");
       for (const name of ["--cursor-row-y", "--cursor-row-h", "--cursor-own-h"]) n.style.removeProperty(name);
     });
     el?.classList.add("cursor-block");
-    marked = el;
   }
   if (!el || !best) return;
   if (el.tagName === "PRE") {
